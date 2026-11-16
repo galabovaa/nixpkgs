@@ -405,6 +405,12 @@ with haskellLib;
   # There are numerical tests on random data, that may fail occasionally
   lapack = dontCheck super.lapack;
 
+  # HiGHS >= 1.16 makes Highs_getSolution and Highs_getBasis return kError
+  # when there is no solution or basis, which made solving e.g. an infeasible
+  # model throw. Return Nothing instead, and always for infeasible models,
+  # since whether HiGHS keeps an infeasible point depends on the solver path.
+  highs-lp = appendPatch ./patches/highs-lp-highs-1.16.patch super.highs-lp;
+
   # fpr-calc test suite depends on random >= 1.3
   # see https://github.com/IntersectMBO/lsm-tree/issues/797
   bloomfilter-blocked =

@@ -1,0 +1,42 @@
+diff -ru a/src/Numeric/HiGHS/LP/Private.hs b/src/Numeric/HiGHS/LP/Private.hs
+--- a/src/Numeric/HiGHS/LP/Private.hs
++++ b/src/Numeric/HiGHS/LP/Private.hs
+@@ -24,7 +24,7 @@
+ import qualified Control.Monad.Trans.Cont as MC
+ import qualified Control.Applicative.HT as AppHT
+ import qualified Control.Functor.HT as FuncHT
+-import Control.Monad (guard, when)
++import Control.Monad (guard, join, when)
+ import Control.Applicative (liftA2, liftA3)
+ 
+ import qualified Foreign.Marshal.Array.Guarded as ForeignArray
+@@ -34,6 +34,8 @@
+ import Foreign.C.String (withCString)
+ import Foreign.C.Types (CDouble)
+ 
++import System.IO.Error (catchIOError)
++
+ 
+ 
+ withBuffer :: Array sh a -> MC.ContT r IO (Ptr a)
+@@ -243,6 +245,17 @@
+ examineStatus :: (Shape.C sh) =>
+    Query sh a -> sh -> Ptr Highs -> Highs.Status -> IO (ModelStatus, Maybe a)
+ examineStatus (Query query) shape model status =
+-   liftA2 (,) (fmap modelStatusFromC $ Highs.getModelStatus model) $
+-   Trav.for (guard (status /= Highs.statusError)) $ \() ->
+-      MR.runReaderT query (shape,model)
++   Highs.getModelStatus model >>= \modelStatus ->
++   fmap ((,) (modelStatusFromC modelStatus)) $
++   fmap join $
++   -- An infeasible model has no meaningful solution. Whether HiGHS keeps
++   -- an infeasible point depends on the solver path, so do not query it.
++   Trav.for (guard (status /= Highs.statusError &&
++                    modelStatus /= Highs.modelStatusInfeasible &&
++                    modelStatus /= Highs.modelStatusUnboundedOrInfeasible)) $ \() ->
++      -- HiGHS >= 1.16 reports an error from Highs_getSolution and
++      -- Highs_getBasis if there is no solution or basis, e.g. for an
++      -- infeasible model. Report that as "no result" instead of failing.
++      catchIOError
++         (fmap Just $ MR.runReaderT query (shape,model))
++         (const $ return Nothing)
